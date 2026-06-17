@@ -226,7 +226,22 @@ function AnalysisTab() {
   const [photo, setPhoto] = useState(null);
   const [report, setReport] = useState(null);
   const [error, setError] = useState(null);
+  const [history, setHistory] = useState([]);
+  const [historyLoading, setHistoryLoading] = useState(true);
   const fileRef = useRef(null);
+
+  const loadHistory = useCallback(() => {
+    const tid = getTgId();
+    if (!tid) { setHistoryLoading(false); return; }
+    setHistoryLoading(true);
+    fetch(`${API_URL}/api/analyses?tg_id=${tid}`, { headers: apiHeaders() })
+      .then(r => r.json())
+      .then(d => setHistory(d.analyses || []))
+      .catch(() => {})
+      .finally(() => setHistoryLoading(false));
+  }, []);
+
+  useEffect(() => { loadHistory(); }, [loadHistory]);
 
   const onFile = async (e) => {
     const f = e.target.files?.[0]; if (!f) return;
@@ -243,9 +258,29 @@ function AnalysisTab() {
         body: JSON.stringify({ image: photo.b64, mime: photo.mime || "image/jpeg" }),
       });
       const data = await res.json();
-      if (data.report) { setReport(data.report); setStep("report"); }
+      if (data.report) { setReport(data.report); setStep("report"); loadHistory(); }
       else { setError(data.error || "Ошибка"); setStep("upload"); }
     } catch (e) { setError("Не удалось проанализировать фото."); setStep("upload"); }
+  };
+
+  const openHistoryItem = async (id) => {
+    const tid = getTgId();
+    if (!tid) return;
+    setStep("scanning");
+    try {
+      const res = await fetch(`${API_URL}/api/analysis?id=${id}&tg_id=${tid}`, { headers: apiHeaders() });
+      const data = await res.json();
+      if (data.report) { setReport(data.report); setStep("report"); }
+      else { setStep("intro"); }
+    } catch { setStep("intro"); }
+  };
+
+  const fmtDate = (s) => {
+    if (!s) return "";
+    try {
+      const d = new Date(s.includes("T") ? s : s.replace(" ", "T") + "Z");
+      return d.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric" });
+    } catch { return s; }
   };
 
   if (step === "intro") return (
@@ -257,6 +292,34 @@ function AnalysisTab() {
         <p className="text-[13px] leading-snug mb-4" style={{color:"#A8A39D"}}>Загрузи фото лица — получишь честный разбор по зонам: кожа, брови, волосы, стиль.</p>
         <button onClick={()=>setStep("guide")} className="w-full font-bold rounded-xl py-3 flex items-center justify-center gap-2" style={{backgroundColor:"#FF5E3A",color:"#000"}}>Начать анализ <ArrowRight size={16} /></button>
       </div>
+
+      <div className="mt-6 flex items-center justify-between mb-2">
+        <div className="text-[13px] font-bold" style={{color:"#F5F0EC"}}>История</div>
+        <button onClick={loadHistory} className="text-[11px] font-bold" style={{color:"#FF5E3A"}}>Обновить</button>
+      </div>
+      {historyLoading ? (
+        <div className="rounded-2xl p-5" style={{backgroundColor:"#161416",border:"1px solid rgba(255,255,255,0.05)"}}>
+          <span className="text-[12px]" style={{color:"#8A8580"}}>Загрузка истории…</span>
+        </div>
+      ) : history.length === 0 ? (
+        <div className="rounded-2xl p-5" style={{backgroundColor:"#161416",border:"1px solid rgba(255,255,255,0.05)"}}>
+          <div className="text-[13px] font-bold mb-1" style={{color:"#F5F0EC"}}>История пустая</div>
+          <p className="text-[12px] leading-snug" style={{color:"#8A8580"}}>Пройди первый анализ — здесь появится короткая строка результата.</p>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {history.map((h) => (
+            <button key={h.id} onClick={() => openHistoryItem(h.id)} className="w-full text-left rounded-xl px-4 py-3 flex items-center justify-between gap-3" style={{backgroundColor:"#161416",border:"1px solid rgba(255,255,255,0.05)"}}>
+              <div className="flex-1 min-w-0">
+                <div className="text-[12.5px] leading-snug truncate" style={{color:"#E8E3DD"}}>{h.summary || "Анализ внешности"}</div>
+                <div className="text-[10.5px] mt-0.5" style={{color:"#6B6660"}}>{fmtDate(h.created_at)}</div>
+              </div>
+              <ArrowRight size={14} style={{color:"#6B6660"}} className="shrink-0" />
+            </button>
+          ))}
+        </div>
+      )}
+
       <div className="mt-6"><div className="text-[13px] font-bold mb-2" style={{color:"#F5F0EC"}}>Как это работает</div>
         <div className="space-y-2">{["Загружаешь фото лица при дневном свете","Смотрим кожу, брови, волосы и стиль","Получаешь конкретные наблюдения и шаги по улучшению"].map((t,i)=>
           <div key={i} className="flex items-start gap-3 rounded-xl px-4 py-3" style={{backgroundColor:"#161416",border:"1px solid rgba(255,255,255,0.05)"}}>
@@ -320,25 +383,167 @@ function AnalysisTab() {
 }
 
 // ---- ACADEMY ----
-const GUIDES = {
-  soft:[{title:"Кожа",desc:"Тон, акне, SPF",count:14},{title:"Волосы",desc:"Стрижка и укладка",count:9},{title:"Брови",desc:"Форма и плотность",count:8},{title:"Стиль",desc:"Одежда и образ",count:6}],
-  hard:[{title:"Осанка",desc:"Привычки и упражнения",count:5},{title:"Сон и восстановление",desc:"Влияние на внешний вид",count:4}],
+const GUIDE_CATEGORIES = {
+  soft:[
+    {id:"skin",title:"Кожа",desc:"Тон, акне, SPF",count:8},
+    {id:"hair",title:"Волосы",desc:"Стрижка и укладка",count:9},
+    {id:"brows",title:"Брови",desc:"Форма и плотность",count:8},
+    {id:"style",title:"Стиль",desc:"Одежда и образ",count:6},
+  ],
+  hard:[
+    {id:"posture",title:"Осанка",desc:"Привычки и упражнения",count:5},
+    {id:"sleep",title:"Сон и восстановление",desc:"Влияние на внешний вид",count:4},
+  ],
 };
-function AcademyTab() {
+
+function GuideDetail({ guideId, onBack, onUpgrade }) {
+  const [state, setState] = useState("loading"); // loading | locked | error | ready
+  const [guide, setGuide] = useState(null);
+
+  useEffect(() => {
+    const tid = getTgId();
+    setState("loading");
+    fetch(`${API_URL}/api/guide?id=${guideId}${tid ? `&tg_id=${tid}` : ""}`, { headers: apiHeaders() })
+      .then(async r => {
+        const d = await r.json();
+        if (r.status === 403) { setState("locked"); return; }
+        if (d.title) { setGuide(d); setState("ready"); }
+        else { setState("error"); }
+      })
+      .catch(() => setState("error"));
+  }, [guideId]);
+
+  return (
+    <div className="px-5 pt-5 pb-24">
+      <button onClick={onBack} className="flex items-center gap-1 text-[12px] mb-4" style={{color:"#8A8580"}}><ArrowLeft size={14} /> Назад</button>
+
+      {state === "loading" && (
+        <div className="rounded-2xl p-5" style={{backgroundColor:"#161416",border:"1px solid rgba(255,255,255,0.1)"}}>
+          <span className="text-[13px]" style={{color:"#8A8580"}}>Загрузка гайда…</span>
+        </div>
+      )}
+
+      {state === "error" && (
+        <div className="rounded-2xl p-5" style={{backgroundColor:"#161416",border:"1px solid rgba(255,255,255,0.1)"}}>
+          <span className="text-[13px]" style={{color:"#FF8A65"}}>Не удалось загрузить гайд.</span>
+        </div>
+      )}
+
+      {state === "locked" && (
+        <div className="rounded-2xl p-5" style={{background:"linear-gradient(135deg,#1A1410,#161416)",border:"1px solid rgba(255,180,84,0.25)"}}>
+          <PillTag tone="pro">BEKS PRO</PillTag>
+          <div className="text-[19px] font-black mt-3" style={{color:"#F5F0EC"}}>Гайд доступен с подпиской</div>
+          <p className="text-[12.5px] mt-2 leading-snug" style={{color:"#A8A39D"}}>Все гайды Академии открываются с BEKS PRO.</p>
+          <button onClick={onUpgrade} className="w-full font-bold rounded-xl py-3 mt-4" style={{backgroundColor:"#FF5E3A",color:"#000"}}>Оформить подписку</button>
+        </div>
+      )}
+
+      {state === "ready" && guide && (
+        <>
+          <SectionEyebrow>Академия BEKS</SectionEyebrow>
+          <h1 className="text-[24px] font-black mb-4" style={{color:"#F5F0EC"}}>{guide.title}</h1>
+          <div className="rounded-2xl p-5 whitespace-pre-wrap text-[13.5px] leading-relaxed" style={{backgroundColor:"#161416",border:"1px solid rgba(255,255,255,0.1)",color:"#E8E3DD"}}>{guide.body}</div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function GuideList({ categoryId, categoryTitle, categoryDesc, onBack, onOpenGuide }) {
+  const [state, setState] = useState("loading"); // loading | empty | ready | error
+  const [guides, setGuides] = useState([]);
+
+  useEffect(() => {
+    setState("loading");
+    fetch(`${API_URL}/api/guides?category=${categoryId}`)
+      .then(r => r.json())
+      .then(d => {
+        const list = d.guides || [];
+        setGuides(list);
+        setState(list.length === 0 ? "empty" : "ready");
+      })
+      .catch(() => setState("error"));
+  }, [categoryId]);
+
+  return (
+    <div className="px-5 pt-5 pb-24">
+      <button onClick={onBack} className="flex items-center gap-1 text-[12px] mb-4" style={{color:"#8A8580"}}><ArrowLeft size={14} /> Назад</button>
+      <div className="rounded-2xl p-4 mb-4" style={{backgroundColor:"#161416",border:"1px solid rgba(255,255,255,0.1)"}}>
+        <PillTag>Раздел</PillTag>
+        <div className="text-[20px] font-black mt-2" style={{color:"#F5F0EC"}}>{categoryTitle}</div>
+        <div className="text-[12px] mt-1" style={{color:"#8A8580"}}>{categoryDesc}</div>
+      </div>
+
+      {state === "loading" && (
+        <div className="rounded-2xl p-5" style={{backgroundColor:"#161416",border:"1px solid rgba(255,255,255,0.05)"}}>
+          <span className="text-[12px]" style={{color:"#8A8580"}}>Загрузка гайдов…</span>
+        </div>
+      )}
+
+      {state === "error" && (
+        <div className="rounded-2xl p-5" style={{backgroundColor:"#161416",border:"1px solid rgba(255,255,255,0.05)"}}>
+          <span className="text-[12px]" style={{color:"#FF8A65"}}>Не удалось загрузить гайды.</span>
+        </div>
+      )}
+
+      {state === "empty" && (
+        <div className="rounded-2xl p-5" style={{backgroundColor:"#161416",border:"1px solid rgba(255,255,255,0.05)"}}>
+          <div className="text-[13px] font-bold mb-1" style={{color:"#F5F0EC"}}>Гайды готовятся</div>
+          <p className="text-[12px] leading-snug" style={{color:"#8A8580"}}>Этот раздел пока в разработке — загляни позже.</p>
+        </div>
+      )}
+
+      {state === "ready" && (
+        <div className="space-y-3">
+          {guides.map((g) => (
+            <div key={g.id} className="rounded-2xl p-4 flex items-center justify-between gap-3" style={{backgroundColor:"#161416",border:"1px solid rgba(255,255,255,0.1)"}}>
+              <div className="flex-1 min-w-0">
+                <PillTag tone="pro">PREMIUM</PillTag>
+                <div className="text-[15px] font-bold mt-2" style={{color:"#F5F0EC"}}>{g.title}</div>
+                <div className="text-[12px]" style={{color:"#8A8580"}}>{g.desc}</div>
+              </div>
+              <button onClick={() => onOpenGuide(g.id)} className="text-[12px] font-bold rounded-lg px-4 py-2 flex items-center gap-1 shrink-0" style={{backgroundColor:"#FF5E3A",color:"#000"}}>Открыть <ArrowRight size={13} /></button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AcademyTab({ onUpgrade }) {
   const [tab, setTab] = useState("soft");
+  const [view, setView] = useState({ mode: "categories" }); // categories | guides | guide
+
+  if (view.mode === "guide") {
+    return <GuideDetail guideId={view.guideId} onBack={() => setView({ mode: "guides", categoryId: view.categoryId, categoryTitle: view.categoryTitle, categoryDesc: view.categoryDesc })} onUpgrade={onUpgrade} />;
+  }
+
+  if (view.mode === "guides") {
+    return (
+      <GuideList
+        categoryId={view.categoryId}
+        categoryTitle={view.categoryTitle}
+        categoryDesc={view.categoryDesc}
+        onBack={() => setView({ mode: "categories" })}
+        onOpenGuide={(guideId) => setView({ ...view, mode: "guide", guideId })}
+      />
+    );
+  }
+
   return (
     <div className="px-5 pt-5 pb-24">
       <SectionEyebrow>Академия BEKS</SectionEyebrow>
       <h1 className="text-[28px] font-black mb-4" style={{color:"#F5F0EC"}}>Гайды.</h1>
       <div className="flex gap-2 mb-4">{[{id:"soft",l:"Softmaxxing"},{id:"hard",l:"Hardmaxxing"}].map(t=>
         <button key={t.id} onClick={()=>setTab(t.id)} className="flex-1 py-2.5 rounded-xl text-[13px] font-bold" style={{backgroundColor:tab===t.id?"#FF5E3A":"#161416",color:tab===t.id?"#000":"#8A8580",border:tab===t.id?"1px solid #FF5E3A":"1px solid rgba(255,255,255,0.1)"}}>{t.l}</button>)}</div>
-      <div className="space-y-3">{GUIDES[tab].map((g,i)=>
-        <div key={i} className="rounded-2xl p-4 flex items-center justify-between" style={{backgroundColor:"#161416",border:"1px solid rgba(255,255,255,0.1)"}}>
+      <div className="space-y-3">{GUIDE_CATEGORIES[tab].map((g)=>
+        <div key={g.id} className="rounded-2xl p-4 flex items-center justify-between" style={{backgroundColor:"#161416",border:"1px solid rgba(255,255,255,0.1)"}}>
           <div><PillTag>{tab==="soft"?"Softmaxxing":"Hardmaxxing"}</PillTag>
             <div className="text-[16px] font-bold mt-2" style={{color:"#F5F0EC"}}>{g.title}</div>
             <div className="text-[12px]" style={{color:"#8A8580"}}>{g.desc}</div>
             <div className="text-[11px] mt-1" style={{color:"#6B6660"}}>Гайдов: {g.count}</div></div>
-          <button className="text-[12px] font-bold rounded-lg px-4 py-2 flex items-center gap-1" style={{backgroundColor:"#FF5E3A",color:"#000"}}>Смотреть <ArrowRight size={13} /></button>
+          <button onClick={() => setView({ mode: "guides", categoryId: g.id, categoryTitle: g.title, categoryDesc: g.desc })} className="text-[12px] font-bold rounded-lg px-4 py-2 flex items-center gap-1" style={{backgroundColor:"#FF5E3A",color:"#000"}}>Смотреть <ArrowRight size={13} /></button>
         </div>)}</div>
     </div>
   );
@@ -496,7 +701,7 @@ export default function App() {
         .placeholder-\\[\\#6B6660\\]::placeholder{color:#6B6660}
       `}</style>
       <TopBar onSettings={()=>setSettingsOpen(true)} />
-      <div className="flex-1 overflow-y-auto">{tab==="chat"?<Active onUpgrade={()=>setTab("profile")}/>:<Active/>}</div>
+      <div className="flex-1 overflow-y-auto">{(tab==="chat"||tab==="academy")?<Active onUpgrade={()=>setTab("profile")}/>:<Active/>}</div>
       <div className="flex" style={{backgroundColor:"#0A0A0C",borderTop:"1px solid rgba(255,255,255,0.05)"}}>
         {tabs.map(t=>{const I=t.icon;const a=t.id===tab;return(
           <button key={t.id} onClick={()=>setTab(t.id)} className="flex-1 flex flex-col items-center gap-1 py-3">
