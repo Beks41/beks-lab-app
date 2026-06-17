@@ -52,8 +52,8 @@ function PillTag({ children, tone = "default" }) {
   return <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-full border inline-block" style={t[tone]}>{children}</span>;
 }
 
-// ---- CHAT (paywall) ----
-function ChatTab({ onUpgrade }) {
+// ---- CHAT (paywall or real chat for PRO) ----
+function ChatPaywall({ onUpgrade }) {
   const suggestions = ["Что даст самый быстрый прирост во внешности?", "Как понять мой главный минус?"];
   return (
     <div className="flex flex-col h-full" style={{background:"radial-gradient(ellipse 160% 70% at 50% -15%,rgba(255,94,58,0.35) 0%,transparent 60%),radial-gradient(ellipse 140% 70% at 100% 110%,rgba(255,180,84,0.18) 0%,transparent 50%),#0A0A0C",color:"#F5F0EC"}}>
@@ -90,6 +90,124 @@ function ChatTab({ onUpgrade }) {
       </div>
     </div>
   );
+}
+
+function ChatReal() {
+  const [messages, setMessages] = useState([
+    { role: "assistant", text: "Привет! Спрашивай про кожу, брови, волосы, стиль — отвечу по делу." },
+  ]);
+  const [input, setInput] = useState("");
+  const [loading, setLoading] = useState(false);
+  const scrollRef = useRef(null);
+  const suggestions = ["Что даст самый быстрый прирост во внешности?", "Как понять мой главный минус?"];
+
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
+  }, [messages, loading]);
+
+  const send = async (textOverride) => {
+    const text = (textOverride ?? input).trim();
+    if (!text || loading) return;
+    const next = [...messages, { role: "user", text }];
+    setMessages(next);
+    setInput("");
+    setLoading(true);
+    try {
+      const tid = getTgId();
+      const res = await fetch(`${API_URL}/api/chat${tid ? `?tg_id=${tid}` : ""}`, {
+        method: "POST",
+        headers: apiHeaders(),
+        body: JSON.stringify({
+          message: text,
+          history: next.slice(-10).map(m => ({ role: m.role, text: m.text })),
+        }),
+      });
+      const data = await res.json();
+      if (data.reply) {
+        setMessages(m => [...m, { role: "assistant", text: data.reply }]);
+      } else {
+        setMessages(m => [...m, { role: "assistant", text: data.error || "Не удалось получить ответ." }]);
+      }
+    } catch {
+      setMessages(m => [...m, { role: "assistant", text: "Ошибка соединения. Попробуй ещё раз." }]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="flex flex-col h-full" style={{background:"radial-gradient(ellipse 160% 70% at 50% -15%,rgba(255,94,58,0.35) 0%,transparent 60%),radial-gradient(ellipse 140% 70% at 100% 110%,rgba(255,180,84,0.18) 0%,transparent 50%),#0A0A0C",color:"#F5F0EC"}}>
+      <div className="px-5 pt-5 pb-2 flex items-center justify-between">
+        <div>
+          <SectionEyebrow>BEKS AI</SectionEyebrow>
+          <h1 className="text-[28px] font-black leading-none" style={{color:"#F5F0EC"}}>Чат.</h1>
+        </div>
+        <PillTag tone="pro">PRO</PillTag>
+      </div>
+      <div ref={scrollRef} className="flex-1 px-5 pt-4 overflow-y-auto">
+        {messages.map((m, i) => (
+          <div
+            key={i}
+            className={`rounded-2xl px-4 py-3 text-[13px] max-w-[80%] mb-3 ${m.role === "user" ? "ml-auto" : ""}`}
+            style={m.role === "user"
+              ? { backgroundColor: "#FF5E3A", color: "#000" }
+              : { backgroundColor: "#161416", border: "1px solid rgba(255,255,255,0.05)", color: "#E8E3DD" }}
+          >
+            {m.text}
+          </div>
+        ))}
+        {loading && (
+          <div className="rounded-2xl px-4 py-3 text-[13px] max-w-[60%] mb-3" style={{backgroundColor:"#161416",border:"1px solid rgba(255,255,255,0.05)",color:"#8A8580"}}>
+            печатает…
+          </div>
+        )}
+      </div>
+      <div className="px-5 py-3" style={{borderTop:"1px solid rgba(255,255,255,0.05)"}}>
+        {messages.length <= 1 && (
+          <div className="flex gap-2 overflow-x-auto mb-3">
+            {suggestions.map((s, i) => (
+              <button key={i} onClick={() => send(s)} className="shrink-0 text-[12px] rounded-full px-3 py-2 whitespace-nowrap" style={{color:"#C9C4BE",border:"1px solid rgba(255,255,255,0.1)"}}>{s}</button>
+            ))}
+          </div>
+        )}
+        <div className="relative">
+          <input
+            value={input}
+            onChange={e => setInput(e.target.value)}
+            onKeyDown={e => e.key === "Enter" && send()}
+            disabled={loading}
+            placeholder="Спроси про внешность"
+            className="w-full rounded-xl px-4 py-3 text-[14px] outline-none"
+            style={{backgroundColor:"#161416",border:"1px solid rgba(255,255,255,0.1)",color:"#F5F0EC"}}
+          />
+          <button onClick={() => send()} disabled={loading || !input.trim()} className="absolute right-2 top-1/2 -translate-y-1/2 w-9 h-9 rounded-lg flex items-center justify-center" style={{backgroundColor:"#FF5E3A",opacity:(loading||!input.trim())?0.5:1}}>
+            <ArrowRight size={16} style={{color:"#000"}} />
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ChatTab({ onUpgrade }) {
+  const [isPro, setIsPro] = useState(null); // null = loading, true/false = known
+  useEffect(() => {
+    const tid = getTgId();
+    if (!tid) { setIsPro(false); return; }
+    fetch(`${API_URL}/api/profile?tg_id=${tid}`, { headers: apiHeaders() })
+      .then(r => r.json())
+      .then(d => setIsPro(!!d.is_pro))
+      .catch(() => setIsPro(false));
+  }, []);
+
+  if (isPro === null) {
+    return (
+      <div className="flex items-center justify-center h-full" style={{color:"#8A8580"}}>
+        <span className="text-[13px]">Загрузка…</span>
+      </div>
+    );
+  }
+  return isPro ? <ChatReal /> : <ChatPaywall onUpgrade={onUpgrade} />;
 }
 
 // ---- ANALYSIS ----
