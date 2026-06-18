@@ -498,7 +498,7 @@ function GuideList({ categoryId, categoryTitle, categoryDesc, onBack, onOpenGuid
           {guides.map((g) => (
             <div key={g.id} className="rounded-2xl p-4 flex items-center justify-between gap-3" style={{backgroundColor:"#161416",border:"1px solid rgba(255,255,255,0.1)"}}>
               <div className="flex-1 min-w-0">
-                <PillTag tone="pro">PREMIUM</PillTag>
+                <PillTag tone="pro">BEKS PRO</PillTag>
                 <div className="text-[15px] font-bold mt-2" style={{color:"#F5F0EC"}}>{g.title}</div>
                 <div className="text-[12px]" style={{color:"#8A8580"}}>{g.desc}</div>
               </div>
@@ -554,21 +554,73 @@ function CaloriesTab() {
   const [meal, setMeal] = useState("");
   const [entries, setEntries] = useState([]);
   const [loading, setLoading] = useState(false);
-  const target = { kcal:2580, protein:126, fat:60, carbs:384 };
-  const totals = entries.reduce((a,e)=>({kcal:a.kcal+(e.kcal||0),protein:a.protein+(e.protein||0),fat:a.fat+(e.fat||0),carbs:a.carbs+(e.carbs||0)}),{kcal:0,protein:0,fat:0,carbs:0});
+  const [loadingData, setLoadingData] = useState(true);
+  const [settings, setSettings] = useState({ kcal: 2580, protein: 126, fat: 60, carbs: 384 });
+
+  const today = () => new Date().toISOString().slice(0, 10);
+
+  const loadMeals = useCallback(() => {
+    const tid = getTgId();
+    if (!tid) { setLoadingData(false); return; }
+    setLoadingData(true);
+    fetch(`${API_URL}/api/meals?tg_id=${tid}&day=${today()}`, { headers: apiHeaders() })
+      .then(r => r.json())
+      .then(d => setEntries(d.meals || []))
+      .catch(() => {})
+      .finally(() => setLoadingData(false));
+  }, []);
+
+  useEffect(() => {
+    loadMeals();
+    const tid = getTgId();
+    if (tid) {
+      fetch(`${API_URL}/api/profile?tg_id=${tid}`, { headers: apiHeaders() })
+        .then(r => r.json())
+        .then(d => {
+          const s = d.settings || {};
+          if (s.weight && s.height && s.age) {
+            const w = parseFloat(s.weight) || 75;
+            const h = parseFloat(s.height) || 180;
+            const a = parseFloat(s.age) || 25;
+            const bmr = Math.round(10 * w + 6.25 * h - 5 * a + 5);
+            const goal = s.goal || "balance";
+            const mult = goal === "cut" ? 1.3 : goal === "gain" ? 1.6 : 1.45;
+            const kcal = Math.round(bmr * mult);
+            setSettings({ kcal, protein: Math.round(w * 1.7), fat: Math.round(w * 0.8), carbs: Math.round((kcal - w*1.7*4 - w*0.8*9) / 4) });
+          }
+        })
+        .catch(() => {});
+    }
+  }, [loadMeals]);
+
+  const totals = entries.reduce((a, e) => ({
+    kcal: a.kcal + (e.kcal || 0), protein: a.protein + (e.protein || 0),
+    fat: a.fat + (e.fat || 0), carbs: a.carbs + (e.carbs || 0)
+  }), { kcal: 0, protein: 0, fat: 0, carbs: 0 });
 
   const addMeal = async () => {
-    const t = meal.trim(); if (!t||loading) return; setLoading(true);
+    const t = meal.trim(); if (!t || loading) return; setLoading(true);
     try {
       const tid = getTgId();
-      const res = await fetch(`${API_URL}/api/calories${tid?`?tg_id=${tid}`:""}`, {
-        method:"POST", headers:apiHeaders(), body:JSON.stringify({meal:t}),
+      const res = await fetch(`${API_URL}/api/calories${tid ? `?tg_id=${tid}` : ""}`, {
+        method: "POST", headers: apiHeaders(), body: JSON.stringify({ meal: t }),
       });
       const d = await res.json();
-      if (d.kcal !== undefined) { setEntries(l=>[{name:t,...d},...l]); setMeal(""); }
-      else { setEntries(l=>[{name:t,kcal:0,protein:0,fat:0,carbs:0,failed:true},...l]); }
-    } catch { setEntries(l=>[{name:t,kcal:0,protein:0,fat:0,carbs:0,failed:true},...l]); }
+      if (d.kcal !== undefined) { setMeal(""); loadMeals(); }
+      else { setEntries(l => [{ id: Date.now(), name: t, kcal: 0, protein: 0, fat: 0, carbs: 0, failed: true }, ...l]); }
+    } catch { setEntries(l => [{ id: Date.now(), name: t, kcal: 0, protein: 0, fat: 0, carbs: 0, failed: true }, ...l]); }
     finally { setLoading(false); }
+  };
+
+  const removeMeal = async (id) => {
+    const tid = getTgId();
+    if (!tid) { setEntries(e => e.filter(x => x.id !== id)); return; }
+    try {
+      await fetch(`${API_URL}/api/meal?tg_id=${tid}`, {
+        method: "DELETE", headers: apiHeaders(), body: JSON.stringify({ id }),
+      });
+    } catch {}
+    setEntries(e => e.filter(x => x.id !== id));
   };
 
   return (
@@ -577,24 +629,53 @@ function CaloriesTab() {
       <h1 className="text-[28px] font-black mb-4" style={{color:"#F5F0EC"}}>Калории.</h1>
       <div className="rounded-2xl p-5 mb-4" style={{backgroundColor:"#161416",border:"1px solid rgba(255,255,255,0.1)"}}>
         <PillTag>Today</PillTag>
-        <div className="text-[28px] font-black mt-2" style={{color:"#F5F0EC"}}>{totals.kcal} / {target.kcal} ккал</div>
-        <div className="grid grid-cols-3 gap-2 mt-4">{[["Белки",totals.protein,target.protein],["Жиры",totals.fat,target.fat],["Углеводы",totals.carbs,target.carbs]].map(([l,v,m])=>
-          <div key={l} className="rounded-xl p-3" style={{backgroundColor:"rgba(0,0,0,0.3)"}}><div className="text-[11px]" style={{color:"#8A8580"}}>{l}</div><div className="text-[15px] font-bold" style={{color:"#FF5E3A"}}>{v}/{m}</div></div>)}</div>
+        <div className="text-[28px] font-black mt-2" style={{color:"#F5F0EC"}}>{totals.kcal} / {settings.kcal} ккал</div>
+        <div className="w-full rounded-full h-1.5 mt-3 mb-4" style={{backgroundColor:"rgba(255,255,255,0.08)"}}>
+          <div className="h-1.5 rounded-full" style={{width:`${Math.min(100, Math.round(totals.kcal/settings.kcal*100))}%`,backgroundColor:"#FF5E3A",transition:"width 0.4s"}} />
+        </div>
+        <div className="grid grid-cols-3 gap-2">{[["Белки",totals.protein,settings.protein],["Жиры",totals.fat,settings.fat],["Углеводы",totals.carbs,settings.carbs]].map(([l,v,m])=>
+          <div key={l} className="rounded-xl p-3" style={{backgroundColor:"rgba(0,0,0,0.3)"}}>
+            <div className="text-[11px]" style={{color:"#8A8580"}}>{l}</div>
+            <div className="text-[15px] font-bold" style={{color:"#FF5E3A"}}>{v}<span className="text-[11px] font-normal" style={{color:"#6B6660"}}>/{m}</span></div>
+          </div>)}</div>
       </div>
       <div className="rounded-2xl p-5 mb-4" style={{backgroundColor:"#161416",border:"1px solid rgba(255,255,255,0.1)"}}>
         <div className="text-[13px] font-bold mb-1" style={{color:"#F5F0EC"}}>Добавить приём пищи</div>
         <p className="text-[12px] mb-3 leading-snug" style={{color:"#8A8580"}}>Опиши блюдо: «омлет с сыром и кофе»</p>
         <div className="flex gap-2">
           <input value={meal} onChange={e=>setMeal(e.target.value)} onKeyDown={e=>e.key==="Enter"&&addMeal()} placeholder="Введите блюдо" className="flex-1 rounded-xl px-4 py-3 text-[14px] outline-none" style={{backgroundColor:"rgba(0,0,0,0.3)",border:"1px solid rgba(255,255,255,0.1)",color:"#F5F0EC"}} />
-          <button onClick={addMeal} disabled={loading} className="w-12 h-12 rounded-xl flex items-center justify-center" style={{backgroundColor:"#FF5E3A",opacity:loading?0.5:1}}><Check size={18} style={{color:"#000"}} /></button>
+          <button onClick={addMeal} disabled={loading} className="w-12 h-12 rounded-xl flex items-center justify-center" style={{backgroundColor:"#FF5E3A",opacity:loading?0.5:1}}>
+            {loading ? <span className="text-[10px] font-bold" style={{color:"#000"}}>...</span> : <Check size={18} style={{color:"#000"}} />}
+          </button>
         </div>
       </div>
-      {entries.length===0 ? <div className="rounded-2xl p-5 text-center" style={{backgroundColor:"#0F0E0F",border:"1px solid rgba(255,255,255,0.05)"}}>
-        <div className="text-[13px] font-bold" style={{color:"#F5F0EC"}}>Приёмов пищи пока нет</div></div>
-        : <div className="space-y-2">{entries.map((e,i)=><div key={i} className="rounded-xl p-4 flex items-center justify-between" style={{backgroundColor:"#161416",border:"1px solid rgba(255,255,255,0.1)"}}>
-          <span className="text-[13px]" style={{color:"#E8E3DD"}}>{e.name}</span>
-          {e.failed ? <span className="text-[11px]" style={{color:"#FF8A65"}}>ошибка</span> : <span className="text-[12px] font-mono" style={{color:"#FF5E3A"}}>{e.kcal} ккал</span>}
-        </div>)}</div>}
+      {loadingData ? (
+        <div className="rounded-2xl p-5 text-center" style={{backgroundColor:"#0F0E0F",border:"1px solid rgba(255,255,255,0.05)"}}>
+          <span className="text-[12px]" style={{color:"#8A8580"}}>Загрузка…</span>
+        </div>
+      ) : entries.length === 0 ? (
+        <div className="rounded-2xl p-5 text-center" style={{backgroundColor:"#0F0E0F",border:"1px solid rgba(255,255,255,0.05)"}}>
+          <div className="text-[13px] font-bold" style={{color:"#F5F0EC"}}>Приёмов пищи пока нет</div>
+          <p className="text-[11px] mt-1" style={{color:"#6B6660"}}>Добавь первый приём — данные сохранятся на сервере</p>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {entries.map((e) => (
+            <div key={e.id} className="rounded-xl px-4 py-3 flex items-center justify-between gap-2" style={{backgroundColor:"#161416",border:"1px solid rgba(255,255,255,0.1)"}}>
+              <div className="flex-1 min-w-0">
+                <span className="text-[13px] block truncate" style={{color:"#E8E3DD"}}>{e.name}</span>
+                {!e.failed && <span className="text-[11px]" style={{color:"#6B6660"}}>Б:{e.protein}г Ж:{e.fat}г У:{e.carbs}г</span>}
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                {e.failed ? <span className="text-[11px]" style={{color:"#FF8A65"}}>ошибка</span> : <span className="text-[12px] font-mono font-bold" style={{color:"#FF5E3A"}}>{e.kcal} ккал</span>}
+                <button onClick={() => removeMeal(e.id)} className="w-6 h-6 rounded-full flex items-center justify-center" style={{backgroundColor:"rgba(255,255,255,0.05)"}}>
+                  <X size={12} style={{color:"#6B6660"}} />
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
