@@ -385,14 +385,41 @@ function AnalysisTab() {
 // ---- ACADEMY ----
 const GUIDE_CATEGORIES = {
   soft:[
-    {id:"skin",title:"Кожа",desc:"Тон, акне, SPF",count:8},
-    {id:"hair",title:"Волосы",desc:"Стрижка и укладка",count:9},
-    {id:"brows",title:"Брови",desc:"Форма и плотность",count:8},
-    {id:"style",title:"Стиль",desc:"Одежда и образ",count:6},
+    {id:"skin",title:"Кожа",desc:"Тон, акне, SPF, увлажнение",count:8},
+    {id:"hair",title:"Волосы",desc:"Стрижка, укладка, уход",count:7},
+    {id:"brows",title:"Брови",desc:"Форма и плотность",count:7},
+    {id:"style",title:"Стиль",desc:"Одежда и образ",count:5},
+    {id:"posture",title:"Осанка",desc:"Привычки и упражнения",count:8},
+    {id:"photo",title:"Фото",desc:"Как хорошо получаться на фото",count:1},
+    {id:"grooming",title:"Уход",desc:"Ежедневные ритуалы и гигиена",count:5},
+    {id:"scent",title:"Запах",desc:"Парфюм и свежесть",count:2},
+    {id:"sleep",title:"Сон",desc:"Влияние на внешний вид",count:6},
+    {id:"nutrition",title:"Питание",desc:"Диета для внешности",count:5},
+    {id:"supplements",title:"БАДы",desc:"Витамины и добавки",count:4},
+    {id:"facewater",title:"Сушка лица",desc:"Убрать лишнюю воду",count:5},
+    {id:"puffiness",title:"Отёчность",desc:"Причины и устранение",count:9},
+    {id:"mimic",title:"Мимика",desc:"Выражение лица и привычки",count:3},
+    {id:"eyes",title:"Глаза",desc:"Уход и зона вокруг глаз",count:8},
+    {id:"lips",title:"Губы",desc:"Уход и увлажнение",count:6},
+    {id:"colortype",title:"Цветотип",desc:"Подбор цветов под внешность",count:1},
+    {id:"accessories",title:"Аксессуары",desc:"Часы, кольца, цепи",count:2},
+    {id:"presence",title:"Подача",desc:"Уверенность и первое впечатление",count:5},
   ],
   hard:[
-    {id:"posture",title:"Осанка",desc:"Привычки и упражнения",count:5},
-    {id:"sleep",title:"Сон и восстановление",desc:"Влияние на внешний вид",count:4},
+    {id:"muscles",title:"Целевые мышцы",desc:"Какие мышцы качать для внешности",count:0},
+    {id:"orthodontics",title:"Ортодонтия",desc:"Брекеты и элайнеры",count:0},
+    {id:"bite",title:"Прикус",desc:"Влияние на лицо и осанку",count:0},
+    {id:"surgery",title:"Операции",desc:"Пластическая хирургия",count:0},
+    {id:"implants",title:"Импланты",desc:"Подбородок, скулы, челюсть",count:0},
+    {id:"injections",title:"Инъекции",desc:"Ботокс, филлеры, биоревитализация",count:0},
+    {id:"cosmetology",title:"Косметология",desc:"Профессиональные процедуры",count:0},
+    {id:"steroids",title:"Стероиды",desc:"Риски и реальность",count:0},
+    {id:"sarms",title:"Сармы",desc:"Риски и врачебный контроль",count:4},
+    {id:"peptides",title:"Пептиды",desc:"Только обзор рисков",count:13},
+    {id:"hormones",title:"Гормоны",desc:"Только с врачом",count:4},
+    {id:"height",title:"Рост",desc:"Осанка и медицина",count:3},
+    {id:"nose",title:"Нос",desc:"Профиль и баланс",count:2},
+    {id:"chin",title:"Подбородок",desc:"Проекция профиля",count:3},
   ],
 };
 
@@ -498,7 +525,7 @@ function GuideList({ categoryId, categoryTitle, categoryDesc, onBack, onOpenGuid
           {guides.map((g) => (
             <div key={g.id} className="rounded-2xl p-4 flex items-center justify-between gap-3" style={{backgroundColor:"#161416",border:"1px solid rgba(255,255,255,0.1)"}}>
               <div className="flex-1 min-w-0">
-                <PillTag tone="pro">BEKS PRO</PillTag>
+                {g.free ? <PillTag tone="free">FREE</PillTag> : <PillTag tone="pro">BEKS PRO</PillTag>}
                 <div className="text-[15px] font-bold mt-2" style={{color:"#F5F0EC"}}>{g.title}</div>
                 <div className="text-[12px]" style={{color:"#8A8580"}}>{g.desc}</div>
               </div>
@@ -542,7 +569,7 @@ function AcademyTab({ onUpgrade }) {
           <div><PillTag>{tab==="soft"?"Softmaxxing":"Hardmaxxing"}</PillTag>
             <div className="text-[16px] font-bold mt-2" style={{color:"#F5F0EC"}}>{g.title}</div>
             <div className="text-[12px]" style={{color:"#8A8580"}}>{g.desc}</div>
-            <div className="text-[11px] mt-1" style={{color:"#6B6660"}}>Гайдов: {g.count}</div></div>
+            <div className="text-[11px] mt-1" style={{color:"#6B6660"}}>{g.count > 0 ? `Гайдов: ${g.count}` : "Скоро"}</div></div>
           <button onClick={() => setView({ mode: "guides", categoryId: g.id, categoryTitle: g.title, categoryDesc: g.desc })} className="text-[12px] font-bold rounded-lg px-4 py-2 flex items-center gap-1" style={{backgroundColor:"#FF5E3A",color:"#000"}}>Смотреть <ArrowRight size={13} /></button>
         </div>)}</div>
     </div>
@@ -701,7 +728,7 @@ function ProfileTab() {
       {!isPro && <div className="rounded-2xl p-5 mb-4" style={{background:"linear-gradient(135deg,#1A1410,#161416)",border:"1px solid rgba(255,180,84,0.3)"}}>
         <PillTag tone="pro">BEKS PRO</PillTag>
         <div className="text-[20px] font-black mt-2" style={{color:"#F5F0EC"}}>Расширенный доступ</div>
-        <p className="text-[12.5px] mt-1 mb-4 leading-snug" style={{color:"#A8A39D"}}>Безлимитный чат, история анализов и premium-гайды.</p>
+        <p className="text-[12.5px] mt-1 mb-4 leading-snug" style={{color:"#A8A39D"}}>Безлимитный чат, история анализов и PRO-гайды.</p>
         <button className="w-full font-bold rounded-xl py-3" style={{backgroundColor:"#FFB454",color:"#000"}}>Оформить BEKS PRO (макет)</button>
       </div>}
       <div className="rounded-xl p-4 flex items-center justify-between" style={{backgroundColor:"#161416",border:"1px solid rgba(255,255,255,0.05)"}}>
